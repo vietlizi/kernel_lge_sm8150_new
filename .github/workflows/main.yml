@@ -1,13 +1,10 @@
-name: "Compile kernel"
+name: "Build kernel."
 
 on:
   workflow_dispatch:
 
 jobs:
   Build:
-    strategy:
-      matrix:
-        variants: [aosp_flash]
     runs-on: ubuntu-latest
     steps:
       - name: Setup build env
@@ -18,7 +15,7 @@ jobs:
           lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev \
           libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
           zip zlib1g-dev python3 python3-pip python3-pexpect python3-setuptools python3-serial python3-yaml \
-          python-is-python3
+          python-is-python3 
       - name: Cache build env
         id: cache-build-env
         uses: actions/cache@v3
@@ -30,8 +27,8 @@ jobs:
       - name: Pull Android toolchain
         if: steps.cache-build-env.outputs.cache-hit != 'true'
         run: |
-          wget -q "$(curl -s https://raw.githubusercontent.com/XSans0/WeebX-Clang/main/main/link.txt)" -O "weebx-clang.tar.gz"
-          mkdir clang && tar -xf weebx-clang.tar.gz -C clang && rm -rf weebx-clang.tar.gz
+          wget -q "https://gitlab.com/XSans0/weebx-clang/-/archive/release/15-gr/weebx-clang-release-15-gr.tar.gz" -O "weebx-clang.tar.gz"
+          mkdir clang && tar -xf weebx-clang.tar.gz -C clang --strip-components=1 && rm -rf weebx-clang.tar.gz
       - name: Save Android toolchain
         if: steps.cache-build-env.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
@@ -44,32 +41,29 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: kernel
-          submodules: recursive
-          fetch-depth: 0
 
       - name: Build kernel
-        id: kernel-build
-        continue-on-error: true
         run: |
           export PATH="$(pwd)/clang/bin:$(pwd)/clang/aarch64-linux-gnu/bin:$(pwd)/clang/arm-linux-gnueabi/bin:$PATH"
           cd kernel
-          make ARCH=arm64 O=out CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- vendor/${{ matrix.variants }}_defconfig
-          sed -i 's/CONFIG_CC_WERROR=y/CONFIG_CC_WERROR=n/g' out/.config
+          make ARCH=arm64 O=out CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- vendor/flash_lao_com-perf_defconfig
+          cd out && ../scripts/kconfig/merge_config.sh -m .config ../arch/arm64/configs/vendor/aosp_flash_defconfig && cd ..
           yes "" | make ARCH=arm64 O=out CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- oldconfig
           make -j$(nproc --all) ARCH=arm64 O=out CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- 2>&1 | tee build.log
-      - name: Setup tmate session for debugging
-        uses: mxschmitt/action-tmate@v3
-        if: steps.kernel-build.conclusion != 'success'
-
+      
       - name: Upload build artifacts
-        if: steps.kernel-build.conclusion == 'success'
         uses: actions/upload-artifact@v3
         with:
-          name: kernel-${{ matrix.variants }}
+          name: kernel-aosp_flash
           path: kernel/out/arch/arm64/boot
 
       - name: Upload build log
         uses: actions/upload-artifact@v3
         with:
-          name: build-log-${{ matrix.variants }}
+          name: build-log-aosp_flash
           path: kernel/build.log
+          
+      - name: Setup tmate session for debugging
+        uses: mxschmitt/action-tmate@v3
+        with:
+          timeout-minutes: 15
